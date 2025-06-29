@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Specify the absolute path to the bin directory of dmtcp (not to be filled in case of successful make install)
-DMTCP_EXEC="/leonardo/home/userexternal/agrassi1/dmtcp/bin/"
+DMTCP_EXEC="/home/andrea/checkpoint/dmtcp/bin/"
 INTERVAL=20
 
 function setup_environment {
@@ -62,10 +62,10 @@ function start_program {
     echo "$(date): Assigned coordinator port: $COORD_PORT" >> "$LOG_FILE"
 
     # Start the DMTCP coordinator in the background
-    ${DMTCP_EXEC}dmtcp_coordinator --exit-on-last --ckptdir "$CKPT_DIR" --kill-after-ckpt --coord-port "$COORD_PORT" >> "$CKPT_DIR/coordinator.log" 2>&1 &
+    ${DMTCP_EXEC}dmtcp_coordinator --interval $INTERVAL --exit-on-last --ckptdir "$CKPT_DIR" --kill-after-ckpt --coord-port "$COORD_PORT" >> "$CKPT_DIR/coordinator.log" 2>&1 &
     local COORD_PID=$!
     echo "$(date): Started coordinator with PID: $COORD_PID" >> "$LOG_FILE"
-
+    
     # Save coordinator port to config file
     echo "COORD_PORT=$COORD_PORT" > "$CKPT_DIR/dmtcp_config"
     echo "CHECKPOINT_DIR=$CKPT_DIR" >> "$CKPT_DIR/dmtcp_config"
@@ -83,7 +83,7 @@ function start_program {
 
     # Launches the first execution of the script with dmtcp_launch
     echo "$(date): Launching dmtcp_launch for $script_path" >> "$LOG_FILE"
-    (${DMTCP_EXEC}dmtcp_launch --interval $INTERVAL --ckpt-open-files --ckptdir $CKPT_DIR python3 -u "$script_path" "${PYTHON_ARGS[@]}" > "$APP_OUTPUT_FILE" 2>&1) 
+    (${DMTCP_EXEC}dmtcp_launch  --ckpt-open-files --ckptdir $CKPT_DIR python3 -u "$script_path" "${PYTHON_ARGS[@]}" > "$APP_OUTPUT_FILE" 2>&1) 
   
 }
 
@@ -102,18 +102,14 @@ function restart_program {
         exit 1
     fi
     source "$CONFIG_FILE"
-
+    
+    #Add DMTCP_COORD_HOST to the restart script
     HOSTNAME_VAL=$(hostname)
     LAST_CKPT="$CKPT_DIR/dmtcp_restart_script.sh"    
-    read -r FIRST_LINE < "$LAST_CKPT"
+    #LAST_CKPT=$(ls -t "$CKPT_DIR"/dmtcp_restart_script_*.sh | head -n 1)
     TMPFILE=$(mktemp)
-    echo "$FIRST_LINE" > "$TMPFILE"
-    if [[ ! "$SECOND_LINE" =~ ^export[[:space:]] ]]; then
-    	echo "$SECOND_LINE" >> "$TMPFILE"
-    fi	
+    head -n 1 "$LAST_CKPT" > "$TMPFILE"
     echo "export DMTCP_COORD_HOST=$HOSTNAME_VAL" >> "$TMPFILE"
-    
-
     tail -n +3 "$LAST_CKPT" >> "$TMPFILE"
     mv "$TMPFILE" "$LAST_CKPT"
     
@@ -130,7 +126,9 @@ function restart_program {
     echo "$(date): Assigned coordinator port: $COORD_PORT" >> "$LOG_FILE"
     
     # Start a new coordinator on the same port
-    ${DMTCP_EXEC}dmtcp_coordinator --interval $INTERVAL --exit-on-last --ckptdir $CKPT_DIR --coord-host $(hostname) --coord-port "$COORD_PORT"  >> "$CKPT_DIR/coordinator.log" 2>&1 &
+    export DMTCP_CHECKPOINT_INTERVAL=$INTERVAL
+
+    ${DMTCP_EXEC}dmtcp_coordinator  --exit-on-last --ckptdir $CKPT_DIR --kill-after-ckpt --coord-port "$COORD_PORT"  >> "$CKPT_DIR/coordinator.log" 2>&1 &
     local COORD_PID=$!
     echo "$(date): Started coordinator with PID: $COORD_PID" >> "$LOG_FILE"
 
@@ -138,7 +136,6 @@ function restart_program {
     
     export DMTCP_COORD_PORT="$COORD_PORT"
     export DMTCP_CKPT_DIR="$CKPT_DIR"
- 	echo $(hostname)
     # Restart the script
     echo "$(date): Launching dmtcp_restart for $LAST_CKPT" >> "$LOG_FILE" 
     (./"$LAST_CKPT" &>> "$APP_OUTPUT_FILE")
